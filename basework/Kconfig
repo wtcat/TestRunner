@@ -1,0 +1,31 @@
+menuconfig BASEWORK
+    bool "Low level Base library"
+    default y
+
+if BASEWORK
+
+rsource "os/Kconfig"
+
+config CORTEXM_DWT
+    bool "Enable watchpoint for cortexm cpu"
+
+config BASEWORK_MEM_SIZE
+    int "The memory pool size of general allocator"
+    default 16384
+
+config GTEST
+    bool "The google code test framework"
+    select CPLUSPLUS
+    select LIB_CPLUSPLUS
+    select POSIX_API
+    select PTHREAD_IPC
+
+config BASEWORK_TEST
+    bool "Enable test case for basework"
+    depends on GTEST
+    default n
+
+
+rsource "dev/Kconfig"
+    
+endif #BASEWORK

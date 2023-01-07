@@ -1,0 +1,20 @@
+
+menu "Block Device"
+config BLKDEV_NR_BUFS
+    int "The block device buffer numbers"
+    range 1 20
+    default 4
+
+config BLKDEV_MAX_BLKSZ
+    int "The maximum block size for block device"
+    default 4096
+
+config BLKDEV_SWAP_PERIOD
+    int "Block device sync period with milliseconds"
+    default 3000
+
+config BLKDEV_HOLD_TIME
+    int "Block device data hold time with millisecond"
+    default 10000
+    
+endmenu

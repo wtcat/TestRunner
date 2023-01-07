@@ -1,0 +1,18 @@
+
+menu "Operation System Abstract Layer"
+
+config OS_MAX_TIMERS
+    int "The maximum timers"
+    default 30
+    help
+        This option is limit maximum timers that can be created
+        at the same time
+
+config OS_MAX_FILES
+    int "The maximum files"
+    default 10
+    help
+        This option is limit maximu files that can be opend at
+        the same time
+        
+endmenu
