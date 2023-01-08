@@ -13,9 +13,4 @@ if (NOT WINDOWS)
     )
 endif()
 
-zephyr_library_sources(
-    ${CMAKE_CURRENT_SOURCE_DIR}/bdbuf.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/bdbuf_cfg.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/bdbuf_ioctl.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/diskdevs.c
-)
+add_subdirectory(block)
