@@ -11,7 +11,7 @@
 #include "basework/ccinit.h"
 
 #define FLASH_DEVNAME "/dev/disk0"
-#define FLASH_PGSZ 4096
+#define FLASH_PGSZ 512
 #define FLASH_NRBLK (FLASH_CAPACITY / FLASH_PGSZ)
 #define FLASH_CAPACITY (1024 * 1024)
 

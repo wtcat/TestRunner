@@ -25,6 +25,7 @@
 /**
  * Set to 1 to enable debug tracing.
  */
+#include <time.h>
 #define RTEMS_BDBUF_TRACE 0
 
 #include <assert.h>
@@ -2006,6 +2007,7 @@ rtems_bdbuf_execute_read_request (rtems_disk_device  *dd,
   uint32_t media_blocks_per_block = dd->media_blocks_per_block;
   uint32_t block_size = dd->block_size;
   uint32_t transfer_index = 1;
+  sem_t syncsem;
 
   /*
    * TODO: This type of request structure is wrong and should be removed.
@@ -2016,7 +2018,8 @@ rtems_bdbuf_execute_read_request (rtems_disk_device  *dd,
 
   req->req = RTEMS_BLKDEV_REQ_READ;
   req->done = rtems_bdbuf_transfer_done;
-  sem_init(req->io_task, 0, 0); // req->io_task = rtems_task_self ();
+  sem_init(&syncsem, 0, 0); // req->io_task = rtems_task_self ();
+  req->io_task = &syncsem;
   req->bufnum = 0;
 
   rtems_bdbuf_set_state (bd, RTEMS_BDBUF_STATE_TRANSFER);
@@ -2785,13 +2788,14 @@ rtems_bdbuf_swapout_task (void * arg)
   // uint32_t                      period_in_ticks;
   const uint32_t                period_in_msecs = bdbuf_config.swapout_period;
   uint32_t                      timer_delta;
+  struct timespec               tv;
   struct timespec               timeout;
 
   /*
    * Localise the period.
    */
   timeout.tv_sec = period_in_msecs / 1000;
-  timeout.tv_nsec = period_in_msecs * 1000 * 1000;
+  timeout.tv_nsec = (period_in_msecs % 1000) * 1000 * 1000;
   // period_in_ticks = RTEMS_MICROSECONDS_TO_TICKS (period_in_msecs * 1000);
 
   /*
@@ -2839,9 +2843,14 @@ rtems_bdbuf_swapout_task (void * arg)
     }
     while (transfered_buffers);
 
-    sc = sem_timedwait(&bdbuf_cache.swapout_sync, &timeout);
-    if (sc == -1 && errno != ETIMEDOUT)
+    clock_gettime(CLOCK_REALTIME, &tv);
+    tv.tv_sec += timeout.tv_sec;
+    tv.tv_nsec += timeout.tv_nsec;
+    sc = sem_timedwait(&bdbuf_cache.swapout_sync, &tv);
+    if (sc == -1 && errno != ETIMEDOUT) {
+      printf("BDBUF error***: wait swapout semaphore failed: %s\n", strerror(errno));
       rtems_bdbuf_fatal (RTEMS_BDBUF_FATAL_SWAPOUT_RE);
+    }
     // sc = rtems_event_receive (RTEMS_BDBUF_SWAPOUT_SYNC,
     //                           RTEMS_EVENT_ALL | RTEMS_WAIT,
     //                           period_in_ticks,
@@ -2849,6 +2858,7 @@ rtems_bdbuf_swapout_task (void * arg)
 
     // if ((sc != RTEMS_SUCCESSFUL) && (sc != RTEMS_TIMEOUT))
     //   rtems_bdbuf_fatal (RTEMS_BDBUF_FATAL_SWAPOUT_RE);
+    // printf("**%s: status code(%d), errno = %d\n", __func__, sc, errno);
   }
 
   rtems_bdbuf_swapout_workers_close ();
@@ -3106,9 +3116,8 @@ rtems_bdbuf_read_ahead_task (void * arg)
     rtems_bdbuf_unlock_cache ();
   }
 
-  pthread_exit(NULL);
+  pthread_exit(NULL); // rtems_task_exit();
   return NULL;
-  // rtems_task_exit();
 }
 
 void rtems_bdbuf_get_device_stats (const rtems_disk_device *dd,

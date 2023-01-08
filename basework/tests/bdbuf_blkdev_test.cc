@@ -1,6 +1,7 @@
 /*
  * Copyright 2022 wtcat
  */
+#include <unistd.h>
 
 #include "basework/lib/block/blkdev.h"
 #include "basework/lib/block/diskdev.h"
@@ -133,10 +134,13 @@ TEST(bdbuf_blkdev, run) {
     ASSERT_EQ(rtems_blkdev_open("/dev/disk0", &dd), 0);
     ASSERT_NE(dd, nullptr);
 
-    ASSERT_EQ(rtems_blkdev_write(dd, copyright, sizeof(copyright), &offset), 0);
+    ASSERT_EQ(rtems_blkdev_write(dd, copyright, sizeof(copyright), &offset), (ssize_t)sizeof(copyright));
 
     offset = 0;
-    ASSERT_EQ(rtems_blkdev_read(dd, str_buffer, sizeof(copyright), &offset), 0);
+    ASSERT_EQ(rtems_blkdev_read(dd, str_buffer, sizeof(copyright), &offset), (ssize_t)sizeof(copyright));
+    ASSERT_STREQ(copyright, str_buffer);
+
+    ASSERT_EQ(rtems_disk_fd_sync(dd), 0);
 
     rtems_blkstats(PRINTER_NAME(default), "/dev/disk0", false);
 }

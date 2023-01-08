@@ -15,8 +15,8 @@
 RQ_DEFINE(rq_context, 16);
 
 int main(int argc, char *argv[]) {
-    c_initializer_run();
     _rq_new_thread(&rq_context, NULL, 0, 0);
+    c_initializer_run();
     testing::InitGoogleTest(&argc, argv);
     int err = RUN_ALL_TESTS();
     _rq_cancel_thread(&rq_context);
