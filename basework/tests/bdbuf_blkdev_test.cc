@@ -137,7 +137,8 @@ TEST(bdbuf_blkdev, run) {
     ASSERT_EQ(rtems_blkdev_open("/dev/disk0", &dd), 0);
     ASSERT_NE(dd, nullptr);
 
-    ASSERT_EQ(rtems_blkdev_write(dd, copyright, sizeof(copyright), &offset), (ssize_t)sizeof(copyright));
+    for (int i = 0; i < 10; i++)
+        ASSERT_EQ(rtems_blkdev_write(dd, copyright, sizeof(copyright), &offset), (ssize_t)sizeof(copyright));
 
     offset = 0;
     ASSERT_EQ(rtems_blkdev_read(dd, str_buffer, sizeof(copyright), &offset), (ssize_t)sizeof(copyright));
