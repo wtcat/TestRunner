@@ -25,7 +25,6 @@
 /**
  * Set to 1 to enable debug tracing.
  */
-#include <time.h>
 #define RTEMS_BDBUF_TRACE 0
 
 #include <assert.h>
@@ -35,6 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <inttypes.h>
+#include <time.h>
 #include <pthread.h>
 #include <semaphore.h>
 
@@ -57,6 +57,8 @@ typedef int rtems_fatal_code;
 #define RTEMS_SUCCESSFUL 0
 #define RTEMS_CONTAINER_OF container_of
 
+#define rtems_chain_first(head) (head)->next
+#define rtems_chain_next(node) (node)->next
 #define rtems_chain_initialize_empty(head) INIT_LIST_HEAD(head)
 #define rtems_chain_extract_unprotected(link) list_del(link)
 #define rtems_chain_prepend_unprotected(head, link) list_add(link, head)
@@ -252,7 +254,7 @@ rtems_bdbuf_list_count (rtems_chain_control* list)
 {
   rtems_chain_node* node = rtems_chain_first (list);
   uint32_t          count = 0;
-  while (!rtems_chain_is_tail (list, node))
+  while (!(list == node) /*!rtems_chain_is_tail (list, node)*/)
   {
     count++;
     node = rtems_chain_next (node);

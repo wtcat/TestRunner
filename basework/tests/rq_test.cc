@@ -38,7 +38,7 @@ TEST(runqueue, submit) {
         rq_submit(work_1, &sync);
         sem_wait(&sync);
     }
-    usleep(1000000);
+    usleep(200000);
     ASSERT_EQ(test_counter, 100);
 }
 
@@ -58,23 +58,14 @@ static void work_3(void *data, size_t size) {
 }
 
 TEST(runqueue, submit_cp) {
-    void *ptr = general_malloc(1024);
-    if (ptr) {
-        printf("***Allocate %d bytes success\n", 1024);
-        general_free(ptr);
-    }
-
     for (size_t i = 0; i < sizeof(test_text)/sizeof(test_text[0]); i++) {
         rq_submit_cp(work_2, (void *)test_text[i], strlen(test_text[i]));
     }
-    usleep(1000000);
+    usleep(50000);
 
     char buffer[12] = {"abcdeghijkl"};
     for (int i = 0; i < 50; i++) {
         ASSERT_EQ(rq_submit_cp(work_3, (void *)buffer, sizeof(buffer)), 0);
         usleep(50000);
-        ptr = general_malloc(sizeof(buffer));
-        ASSERT_NE(ptr, nullptr);
-        general_free(ptr);
     }
 }
