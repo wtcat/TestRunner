@@ -8,6 +8,8 @@
 #include "basework/log.h"
 #include "gtest/gtest.h"
 
+#define RTEMS_BLKIO_GETBUFFER         _IOR('B', 15, void *)
+
 static const char copyright[] = {
     "// Copyright 2006, Google Inc.\n"
     "// All rights reserved.\n"
@@ -130,6 +132,7 @@ static char str_buffer[sizeof(copyright)+1];
 TEST(bdbuf_blkdev, run) {
     rtems_disk_device *dd;
     off_t offset = 0;
+    void *dptr = nullptr;
 
     ASSERT_EQ(rtems_blkdev_open("/dev/disk0", &dd), 0);
     ASSERT_NE(dd, nullptr);
@@ -141,6 +144,10 @@ TEST(bdbuf_blkdev, run) {
     ASSERT_STREQ(copyright, str_buffer);
 
     ASSERT_EQ(rtems_disk_fd_sync(dd), 0);
+
+    ASSERT_EQ(rtems_blkdev_control(dd, RTEMS_BLKIO_GETBUFFER, &dptr), 0);
+    ASSERT_NE(dptr, nullptr);
+    ASSERT_EQ(memcmp(dptr, copyright, sizeof(copyright)), 0);
 
     rtems_blkstats(PRINTER_NAME(default), "/dev/disk0", false);
 }

@@ -15,6 +15,8 @@
 #define FLASH_NRBLK (FLASH_CAPACITY / FLASH_PGSZ)
 #define FLASH_CAPACITY (1024 * 1024)
 
+#define RTEMS_BLKIO_GETBUFFER         _IOR('B', 15, void *)
+
 static uint8_t vdisk_memory[FLASH_CAPACITY];
 
 static int vdisk_read(rtems_blkdev_request *req) {
@@ -56,6 +58,9 @@ static int vdisk_request(rtems_disk_device *dd, uint32_t req, void *argp) {
         break;
     }
     case RTEMS_BLKIO_DELETED:
+        break;
+    case RTEMS_BLKIO_GETBUFFER:
+        *(void **)argp = vdisk_memory;
         break;
     default:
         return rtems_blkdev_ioctl (dd, req, argp);

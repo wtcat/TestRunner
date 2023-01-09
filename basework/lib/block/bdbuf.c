@@ -2105,8 +2105,8 @@ static void
 rtems_bdbuf_check_read_ahead_trigger (rtems_disk_device *dd,
                                       rtems_blkdev_bnum  block)
 {
-  if (bdbuf_cache.read_ahead_task != 0
-      && dd->read_ahead.trigger == block
+  // if (bdbuf_cache.read_ahead_task != 0
+  if (dd->read_ahead.trigger == block
       && !rtems_bdbuf_is_read_ahead_active (dd))
   {
     dd->read_ahead.nr_blocks = RTEMS_DISK_READ_AHEAD_SIZE_AUTO;
