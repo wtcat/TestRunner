@@ -43,6 +43,7 @@
 #include <errno.h>
 #include <string.h>
 
+#include "basework/os/osapi.h"
 #include "basework/malloc.h"
 #include "basework/lib/block/blkdev.h"
 #include "basework/lib/block/bdbuf.h"
@@ -54,16 +55,19 @@ struct disk_device_context {
   struct disk_device_context *next;
 };
 
+os_critical_global_declare
 static struct disk_device_context *disk_list;
 
 static void disk_node_add(
   const char *name, 
   struct disk_device_context *ctx) {
+  os_critical_declare
   ctx->name = name;
 
-  //TODO: add critical protect
+  os_critical_lock
   ctx->next = disk_list;
   disk_list = ctx;
+  os_critical_unlock
 }
 
 ssize_t rtems_blkdev_read(

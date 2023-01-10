@@ -171,6 +171,7 @@ void _rq_reset(struct rq_context *rq) {
 void _rq_schedule(struct rq_context *rq) {
     os_critical_declare
     struct rq_node *rn;
+    rq_exec_t fn;
 
     os_critical_lock
 
@@ -181,15 +182,16 @@ void _rq_schedule(struct rq_context *rq) {
             os_critical_unlock
             /*
              * Now, The queue is empty and we have no more work to do, So we
-             * trigger task schedule and switch other task.
+             * trigger task schedule and switch to other task.
              */
             os_resched(rq->proc);
             continue;
         }
+        fn = rn->exec;
         os_critical_unlock
 
         /* Executing user function */ 
-        rn->exec(rn->arg);
+        fn(rn->arg);
         
         os_critical_lock
         
