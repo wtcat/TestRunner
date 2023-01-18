@@ -3,7 +3,7 @@
  *
  * The simple block device buffer implement
  */
-#define pr_fmt(fmt) "blkdev: "fmt
+#define pr_fmt(fmt) "<blkdev>: "fmt
 
 #include <assert.h>
 #include <string.h>
@@ -167,6 +167,7 @@ static struct bh_desc *bh_search_locked(struct disk_device *dd, uint32_t blkno) 
     if (list_empty(&cached_list)) 
         blkdev_sync_locked(CONFIG_BLKDEV_HOLD_TIME);
     
+    assert(cached_list.next != NULL);
     bh_statistics.cache_missed++;
     bh = container_of(cached_list.next, struct bh_desc, link);
     list_del(&bh->link);

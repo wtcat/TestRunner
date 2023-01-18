@@ -139,9 +139,7 @@ protected:
     void SetUp() override {}
     void TearDown() override {}
     static void SetUpTestCase() {}
-    static void TearDownTestCase() {
-        blkdev_destroy();
-    }
+    static void TearDownTestCase() {}
     struct disk_device *get_disk() const {
         struct disk_device *dd = nullptr;
         disk_device_open(DISK_DEV, &dd);
