@@ -12,6 +12,7 @@
 
 #include "basework/dev/partition.h"
 #include "basework/lib/printer.h"
+#include "basework/lib/disklog.h"
 #include "basework/log.h"
 #include "basework/minmax.h"
 #include "basework/malloc.h"
@@ -128,8 +129,8 @@ _next:
     return ret;
 }
 
-int disklog_ouput(void (*output)(void *ctx, char *buf, size_t size), 
-    void *ctx) {
+int disklog_ouput(bool (*output)(void *ctx, char *buf, size_t size), 
+    void *ctx, size_t maxsize) {
 #define LOG_SIZE 1024
     assert(dp_dev != NULL);
     uint32_t rd_ofs, bytes;
@@ -138,7 +139,9 @@ int disklog_ouput(void (*output)(void *ctx, char *buf, size_t size),
 
     if (output == NULL)
         return -EINVAL;
-    buffer = general_malloc(LOG_SIZE+1);
+    if (maxsize == 0)
+        maxsize = LOG_SIZE;
+    buffer = general_malloc(maxsize+1);
     if (buffer == NULL)
         return -ENOMEM;
 
@@ -148,12 +151,16 @@ int disklog_ouput(void (*output)(void *ctx, char *buf, size_t size),
     rd_ofs = log_file.rd_ofs;
     while (remain > 0) {
         bytes = MIN(log_file.end - rd_ofs, remain);
-        bytes = MIN(bytes, LOG_SIZE);
+        bytes = MIN(bytes, maxsize);
         ret = lgpt_read(dp_dev, rd_ofs, buffer, bytes);
         if (ret <= 0)
             goto _next;
 
-        output(ctx, buffer, bytes);
+        if (!output(ctx, buffer, bytes)) {
+            ret = -EIO;
+            goto _next;
+        }
+
         remain -= bytes;
         rd_ofs += bytes;
         if (rd_ofs >= log_file.end)
@@ -166,3 +173,49 @@ _next:
     return ret;    
 }
 
+ssize_t disklog_read(char *buffer, size_t maxlen, bool first) {
+    assert(dp_dev != NULL);
+    static struct disk_log rdlog;
+    uint32_t rd_ofs, bytes;
+    int ret = 0;
+
+    if (!buffer || !maxlen)
+        return -EINVAL;
+
+    MTX_LOCK();
+    if (first)
+        rdlog = log_file;
+
+    size_t size = rdlog.d_size;
+    size_t remain = MIN(maxlen, size);
+    rd_ofs = rdlog.rd_ofs;
+    while (remain > 0) {
+        bytes = MIN(rdlog.end - rd_ofs, remain);
+        ret = lgpt_read(dp_dev, rd_ofs, buffer, bytes);
+        if (ret <= 0)
+            goto _next;
+
+        remain -= bytes;
+        rd_ofs += bytes;
+        size -= bytes;
+        if (rd_ofs >= rdlog.end)
+            rd_ofs = rdlog.start;
+    }
+    rdlog.rd_ofs = rd_ofs;
+    rdlog.d_size = size;
+_next:
+    MTX_UNLOCK();
+    return ret;   
+}
+
+void disklog_upload_cb(struct log_upload_class *luc) {
+    if (!luc || !luc->upload)
+        return;
+    if (luc->begin)
+        luc->begin(luc->ctx);
+
+    int err = disklog_ouput(luc->upload, luc->ctx, luc->maxsize);
+
+    if (luc->end)
+        luc->end(luc->ctx, err);
+}

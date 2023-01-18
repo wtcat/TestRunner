@@ -38,7 +38,7 @@ TEST(runqueue, submit) {
         rq_submit(work_1, &sync);
         sem_wait(&sync);
     }
-    usleep(200000);
+    usleep(20000);
     ASSERT_EQ(test_counter, 100);
 }
 

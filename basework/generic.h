@@ -46,6 +46,10 @@
 #define __used __attribute__((used))
 #endif
 
+#ifndef __unused
+#define __unused __attribute__((used))
+#endif
+
 #ifndef __packed
 #define __packed        __attribute__((packed))
 #endif

@@ -5,6 +5,8 @@
 #define BASEWORK_LIB_ENVCORE_H_
 
 #include <stddef.h>
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C"{
 #endif
@@ -59,6 +61,41 @@ int env_flush(int (*write_cb)(void *ctx, void *buffer, size_t size),
  * env_reset - Clear all environment variables
  */
 void env_reset(void);
+
+/*
+ * env_streq - Compare whether the key-value is equal 
+ *
+ * @key: environment key
+ * @s: string value
+ * return true if equal
+ */
+bool env_streq(const char *key, const char *s);
+
+/*
+ * env_getul - Get key-value and convert to unsigned long value
+ *
+ * @key: environment key
+ * return the value of key
+ */
+unsigned long env_getul(const char *key);
+
+/*
+ * env_getul - Get key-value and convert to long value
+ *
+ * @key: environment key
+ * return the value of key
+ */
+long env_getl(const char *key);
+
+/*
+ * env_setint - Set integer value to key
+ *
+ * @key: environment key
+ * @v: value
+ * return 0 if success
+ */
+int env_setint(const char *key, int v);
+
 /*
  * env_flush_ram - Flush environment variables to ram
  *

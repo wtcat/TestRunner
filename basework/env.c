@@ -3,8 +3,10 @@
  */
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "basework/lib/env_core.h"
+#include "basework/env.h"
 
 struct env_ram {
     char *buffer;
@@ -40,6 +42,35 @@ int env_flush(int (*write_cb)(void *ctx, void *buffer, size_t size),
 
 void env_reset(void) {
     _env_free(&sysenv);
+}
+
+bool env_streq(const char *key, const char *s) {
+    const char *env = env_get(key);
+    if (env && s)
+        return !strcmp(env, s);
+    return false;
+}
+
+unsigned long env_getul(const char *key) {
+    const char *env = env_get(key);
+    if (env)
+        return strtoul(env, NULL, 16);
+    return 0;
+}
+
+long env_getl(const char *key) {
+    const char *env = env_get(key);
+    if (env)
+        return strtol(env, NULL, 16);
+    return 0;
+}
+
+int env_setint(const char *key, int v) {
+    extern char *itoa(int val, char *str, int base);
+    char number[16];
+
+    char *str = itoa(v, number, 16);
+    return env_set(key, str, 1);
 }
 
 static int env_ram_write(void *ctx, void *buffer, size_t size) {

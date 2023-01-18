@@ -30,12 +30,31 @@ static struct disk_device *disk_device_find_by_part(const struct disk_partition 
     return parition_disk_cache[part - partition_table];
 }
 
-const struct disk_partition *disk_partition_find(const char *name) {
+static const struct disk_partition *partition_match(const char *in) {
+    const struct disk_partition *dp, *dpii;
+    char *p = strchr(in, '/');
     for (size_t i = 0; i < partition_table_len; i++) {
-        if (!strcmp(name, partition_table[i].name))
-            return &partition_table[i];
+        dp = &partition_table[i];
+        if (!p) {
+           if (!strcmp(in, dp->name))
+                return dp;
+            continue;
+        }
+        if (!strncmp(in, dp->name, p - in)) {
+            p++;
+            dpii = dp->child;
+            while (dpii && dpii->name) {
+                if (!strcmp(p, dpii->name))
+                    return dpii;
+                dpii++;
+            }
+        }
     }
     return NULL;
+}
+
+const struct disk_partition *disk_partition_find(const char *name) {
+    return partition_match(name);
 }
 
 const struct disk_partition *disk_get_partition_table(size_t *len) {

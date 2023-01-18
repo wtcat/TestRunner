@@ -6,8 +6,7 @@
 #ifndef BASEWORK_LIB_PARTITION_H_
 #define BASEWORK_LIB_PARTITION_H_
 
-#include <stddef.h>
-#include <stdint.h>
+#include "basework/generic.h"
 
 #ifdef __cplusplus
 extern "C"{
@@ -19,6 +18,7 @@ struct disk_partition {
     const char *parent;
     long offset;
     size_t len;
+    const struct disk_partition *child;
 };
 
 
@@ -29,13 +29,14 @@ struct disk_partition {
 #define PARTITION_TABLE_DECLARE(name) \
     extern struct disk_partition name[]
 #define PARTITION_TABLE_DEFINE(name) \
-    static struct disk_partition name[] = 
+    static struct disk_partition name[] __used = 
 #define PARTITION_ENTRY(_name, _parent, _offset, _size) \
     { \
         .name = _name, \
         .parent = _parent, \
         .offset = _offset, \
-        .len = _size \
+        .len = _size, \
+        .child = NULL \
     }
 #define PARTITION_TERMINAL {NULL, NULL, 0, 0} 
 
@@ -87,26 +88,26 @@ int disk_partition_write(const struct disk_partition *part, uint32_t addr,
  * lgpt_read - Read data from partition (with cache)
  *
  * @part: partition
- * @addr: relative address for partition
+ * @offset: relative address for partition
  * @buf: read buffer
  * @size: read size
  * return >= 0: successful read data size
  *           -1: error
  */
-int lgpt_read(const struct disk_partition *part, uint32_t addr, 
+int lgpt_read(const struct disk_partition *part, uint32_t offset, 
     void *buf, size_t size);
 
 /*
  * lgpt_write - Write data to partition（no need to erase）
  *
  * @part: partition
- * @addr: relative address for partition
+ * @offset: relative address for partition
  * @buf: write buffer
  * @size: write size
  * return >= 0: successful write data size
  *           -1: error
  */
-int lgpt_write(const struct disk_partition *part, uint32_t addr, 
+int lgpt_write(const struct disk_partition *part, uint32_t offset, 
     const void *buf, size_t size);
 
 /*
@@ -154,6 +155,15 @@ void disk_partition_dump(void);
  * return 0 if success
  */
 int partitions_configure_build(long base_addr, size_t size, const char *phydev);
+
+/*
+ * logic_partitions_create - Create a logic parition from the parent partition
+ *
+ * @ppt: parent partition name
+ * @sublist: the sub-partition table
+ * return 0 if success
+ */
+int logic_partitions_create(const char *ppt, struct disk_partition *sublist);
 
 #ifdef __cplusplus
 }

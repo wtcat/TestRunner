@@ -5,10 +5,20 @@
 #define BASEWORK_LIB_DISKLOG_H_
 
 #include <stddef.h>
+#include <stdbool.h>
+#include <sys/types.h>
 
 #ifdef __cplusplus
 extern "C"{
 #endif
+
+struct log_upload_class {
+    void (*begin)(void *ctx);
+    bool (*upload)(void *ctx, char *buf, size_t size);
+    void (*end)(void *ctx, int err);
+    void *ctx;
+    size_t maxsize;
+};
 
 /*
  * disklog_init - Initialize disk log module
@@ -36,9 +46,28 @@ int disklog_input(const char *buf, size_t size);
  * 
  * @output: log output callback
  * @ctx: user parameter
+ * @maxsize: the maximum data size for output per times
  * return 0 if success
  */
-int disklog_ouput(void (*output)(void *ctx, char *buf, size_t size), void *ctx);
+int disklog_ouput(bool (*output)(void *ctx, char *buf, size_t size), 
+    void *ctx, size_t maxsize);
+
+/*
+ * disklog_read - Read disk log
+ * 
+ * @buffer: log buffer
+ * @maxlen: buffer size
+ * @first: first read
+ * return read size if success else less than 0
+ */
+ssize_t disklog_read(char *buffer, size_t maxlen, bool first);
+
+/*
+ * disklog_upload - log upload callback 
+ * 
+ * @luc: callback handle
+ */
+void disklog_upload_cb(struct log_upload_class *luc);
 
 #ifdef __cplusplus
 }

@@ -3,6 +3,9 @@
 #define BASE_MINMAX_H_
 
 #define __is_constexpr(x) __builtin_constant_p(x)
+#ifndef __UNIQUE_ID
+#define __UNIQUE_ID(n) n
+#endif
 
 /*
  * min()/max()/clamp() macros must accomplish three things:

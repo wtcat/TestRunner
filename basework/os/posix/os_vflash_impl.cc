@@ -11,7 +11,7 @@
 
 #define FLASH_DEVNAME "virtual-flash"
 #define FLASH_PGSZ 4096
-#define FLASH_CAPACITY (512 * 1024)
+#define FLASH_CAPACITY (5 * 1024 * 1024)
 
 static char virtual_flash_memory[FLASH_CAPACITY];
 

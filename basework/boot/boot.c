@@ -6,9 +6,11 @@
  * @crash: yes/or (whether the system has occurred exception)
  * @runtime: $time (last running time of the system)
  * @crash-cnt: $times (crash count of the system)
+ * @ota_update: Notice that firmware enter OTA update mode
  *
  */
-#define pr_fmt(fmt) "boot: "fmt
+#define pr_fmt(fmt) "<bootloader>: "fmt
+#define CONFIG_LOGLEVEL LOGLEVEL_DEBUG
 
 #include <errno.h>
 #include <assert.h>
@@ -18,10 +20,12 @@
 #include <stdio.h>
 
 #include "basework/boot/boot.h"
-#include "basework/dev/partition.h"
 #include "basework/dev/disk.h"
+#include "basework/system.h"
 #include "basework/env.h"
 #include "basework/log.h"
+#include "basework/minmax.h"
+#include "basework/system.h"
 
 
 #define REBOOT_MAX_LIMIT 10
@@ -32,38 +36,18 @@ struct fw_desc {
     long offset;
 };
 
-// static const struct disk_partition *fw_boot, *fw_swap, *fw_save;
-static struct disk_device *fw_loader, *fw_runner;
-static char fw_cache[4096];
+struct indicate_obj {
+    const char *action;
+    void (*notify)(const char *, int);
+    int progress;
+};
 
-extern void *sys_get_nvram(size_t *size);
-extern uint32_t crc32_calc(uint32_t crc, const void *buf, size_t size);
+static struct fw_desc fw_loader, fw_runner, fw_curinfo;
+static uint8_t fw_cache[FW_FLASH_BLKSIZE];
 
 
-static bool env_streq(const char *key, const char *s) {
-    const char *env = env_get(key);
-    if (env && s)
-        return !strcmp(env, s);
-    return false;
-}
-
-static unsigned long env_strtoul(const char *key) {
-    const char *env = env_get(key);
-    if (env)
-        return strtoul(env, NULL, 16);
-    return 0;
-}
-
-static int env_setint(const char *key, int v) {
-    char number[16];
-    size_t len;
-
-    len = snprintf(number, sizeof(number)-1, "%x", v);
-    number[len] = '\0';
-    return env_set(key, number, 1);
-}
-
-static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t len) {
+static uint32_t crc32_update(uint32_t crc, const uint8_t *data, 
+    size_t len) {
 	/* crc table generated from polynomial 0xedb88320 */
 	static const uint32_t table[16] = {
 		0x00000000U, 0x1db71064U, 0x3b6e20c8U, 0x26d930acU,
@@ -81,14 +65,15 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t len) {
 	return ~crc;
 }
 
-static bool is_fw_partition_valid(const struct fw_desc *fd) {
+static bool is_fw_valid(const struct fw_desc *fd, struct firmware_header *outfw) {
     struct firmware_header fw;
-    // size_t ofs = 0;
     int ret;
 
     ret = disk_device_read(fd->dd, &fw, sizeof(fw), fd->offset);
-    if (ret <= 0) 
+    if (ret) {
+        pr_err("Read firmware failed(%d)\n", ret);
         return ret;
+    }
 
     if (fw.fh_magic != FH_MAGIC) {
         pr_err("Invalid fireware header (%x)\n", fw.fh_magic);
@@ -100,163 +85,272 @@ static bool is_fw_partition_valid(const struct fw_desc *fd) {
         return false;
     }
 
-    
-    // ret = disk_partition_erase_all(dp);
-    // if (ret) {
-    //     pr_err("Erase partition(%s) failed\n", dp->name);
-    //     return false;
-    // }
+    size_t size = fw.fh_isize;
+    size_t offset = fd->offset + sizeof(fw);
+    uint32_t crc = 0;
+    while (size > 0) {
+        size_t bytes = min(size, sizeof(fw_cache));
+        ret = disk_device_read(fd->dd, fw_cache, bytes, offset);
+        if (ret) 
+            return ret;
+        crc = crc32_update(crc, fw_cache, bytes);
+        offset += bytes;
+        size -= bytes;
+    }
+    if (crc != fw.fh_dcrc) {
+        pr_err("CRC verify failed");
+        return false;
+    }
 
-    //TODO: CRC check
+    if (outfw)
+        *outfw = fw;
+
     return true;
 }
 
-static bool is_fw_recovery_partiton_valid(void) {
-    return is_fw_partition_valid(fw_swap);
+static void ota_progress_indicate(struct indicate_obj *obj, int progress) {
+    if (obj->notify && 
+        progress != obj->progress) {
+        obj->progress = progress;
+        obj->notify(obj->action, progress);
+    }
 }
 
 static bool is_fw_runtime_okay(void) {
-    if (env_strtoul("runtime") > 3600)
+    if (env_getul("runtime") > 3600)
         return true;
     return false;
 }
 
 static bool is_fw_need_recovery(void) {
     if (env_streq("crash", "yes")) {
-        unsigned long errs = env_strtoul("crash-cnt");
+        unsigned long errs = env_getul("crash-cnt");
         if (errs > REBOOT_MAX_LIMIT)
             return true;
 
-        if (env_strtoul("runtime") < MIN_TIME) {
-            errs++;
+        if (env_getul("runtime") < MIN_TIME)
             env_setint("crash-cnt", errs);
-        }
     }
+
+    pr_dbg("The firmware not need recovery mode!\n");
     return false;
 }
 
 static bool is_fw_need_update(void) {
-    if (env_streq("ota-update", "yes"))
-        return true;
+    struct firmware_pointer curr, loader;
+    int ret;
+    
+    ret = disk_device_read(fw_loader.dd, &loader, sizeof(loader), fw_loader.offset);
+    if (ret) {
+        pr_err("read download firmware information failed(%d)\n", ret);
+        return false;
+    }
+
+    if (loader.fh_magic != FH_MAGIC) {
+        pr_warn("download firmware is invalid\n");
+        return false;
+    }
+
+    ret = disk_device_read(fw_curinfo.dd, &curr, sizeof(curr), fw_curinfo.offset);
+    if (ret) {
+        pr_err("read current firmware information failed(%d)\n", ret);
+        return false;
+    }
+    
+    /*
+     * Compare device id and checksum of the firmware
+     */
+    if (curr.fh_magic == FH_MAGIC) {
+        if (loader.fh_magic == curr.fh_magic &&
+            curr.fh_devid == loader.fh_devid &&
+            curr.fh_dcrc != loader.fh_dcrc)
+            return true;
+    } else {
+        if (loader.fh_magic == FH_MAGIC)
+            return true;
+    }
+
+    pr_dbg("The firmware don't need to update\n");
     return false;
 }
 
-static int fw_partition_copy_decomp(const struct fw_desc *dst, 
-    const struct fw_desc *src, void (*notify)(const char *, int), 
-    const char *action) {
-    struct firmware_header fw;
-    size_t ofs = 0;
-    uint32_t crc = 0;
+static int fw_save_header(struct fw_desc *fd, const struct firmware_pointer *fp) {
     int ret;
 
-    if (!is_fw_partition_valid(src))
+    ret = disk_device_read(fd->dd, fw_cache, 
+        sizeof(fw_cache), fd->offset);
+    if (ret) {
+        pr_err("<%s>Read disk failed(%d)\n", __func__, ret);
+        return ret;
+    }
+
+    ret = disk_device_erase(fd->dd, fd->offset, sizeof(fw_cache));
+    if (ret) {
+        pr_err("<%s>Erase disk failed(%d)\n", __func__, ret);
+        return ret;
+    }
+
+    /* Save current firmware information */
+    memcpy(fw_cache, fp, sizeof(*fp));
+    ret = disk_device_write(fd->dd, fw_cache, sizeof(fw_cache), fd->offset);
+    if (ret) {
+        pr_err("<%s> Write file header failed(%d)\n", __func__, ret);
+        return ret;
+    }
+
+    return 0;
+}
+
+/*
+ * Copy firmware to run region
+ */
+static int fw_copy_decomp(const struct fw_desc *dst, 
+    const struct fw_desc *src, void (*notify)(const char *, int), 
+    const char *action) {
+    struct firmware_header fw = {0};
+    struct indicate_obj phase = {0};
+    int ret;
+
+    if (!is_fw_valid(src, &fw))
         return -EINVAL;
 
+    phase.notify = notify;
+    phase.action = action;
     /*
-     * Copy paritition data
+     * Copy firmware data 
      */
-    while (ofs < fw.fh_isize) {
-        ret = disk_partition_read(src, ofs, fw_cache, sizeof(fw_cache));
-        if (ret < 0) {
-            pr_err("Read partition(%s) address(0x%x) failed", src->name, ofs);
-            break;
+    size_t src_ofs = src->offset + sizeof(struct firmware_header);
+    size_t fw_size = fw.fh_isize;
+    size_t ofs = 0;
+
+    while (fw_size > 0) {
+        size_t bytes = min(fw_size, sizeof(fw_cache));
+        ret = disk_device_read(src->dd, fw_cache, bytes, src_ofs);
+        if (ret) {
+            pr_err("<%s>Read disk address(0x%x) failed", __func__, src_ofs);
+            return ret;
         }
 
-        ret = disk_partition_write(dst, ofs, fw_cache, ret);
-        if (ret < 0) {
-            pr_err("Write partition(%s) address(0x%x) failed", dst->name, ofs);
-            break;
+        if (disk_device_erase(dst->dd, dst->offset + ofs, sizeof(fw_cache))) {
+            pr_err("<%s>Erase disk failed\n", __func__);
+            return -EIO;
+        }
+  
+        ret = disk_device_write(dst->dd, fw_cache, bytes, dst->offset + ofs);
+        if (ret) {
+            pr_err("<%s>Write disk address(0x%x) failed", __func__, ofs);
+            return ret;
         }
 
-        ofs += ret;
-        if (notify)
-            notify(action, (ofs * 100) / (fw.fh_isize << 1));
+        ofs += bytes;
+        src_ofs += bytes;
+        fw_size -= bytes;
+
+        ota_progress_indicate(&phase, (ofs * 100) / (fw.fh_isize << 1));
     }
 
     /* Verify */
-    ofs = sizeof(fw); //TODO: wether we need fw_header????
-    do {
-        ret = disk_partition_read(dst, ofs, fw_cache, sizeof(fw_cache));
-        if (ret < 0) {
-            pr_err("Read partition(%s) address(0x%x) failed", src->name, ofs);
+    uint32_t crc = 0;
+    fw_size = fw.fh_isize;
+    ofs = 0;
+    while (fw_size > 0) {
+        size_t bytes = min(fw_size, sizeof(fw_cache));
+        ret = disk_device_read(dst->dd, fw_cache, bytes, dst->offset + ofs);
+        if (ret) {
+            pr_err("<%s>Read address(0x%x) failed", __func__, ofs);
             break;
         }
-        crc = crc32_calc(crc, fw_cache, ret);
-        ofs += ret;
-        if (ofs == fw.fh_isize) {
+
+        crc = crc32_update(crc, fw_cache, bytes);
+        ofs += bytes;
+        fw_size -= bytes;
+
+        if (fw_size == 0) {
             if (crc != fw.fh_dcrc) {
-                pr_err("CRC check failed(cur(0x%x) org(0x%x))\n", crc, fw.fh_dcrc);
+                pr_err("CRC veriry failed(cur(0x%x) org(0x%x))\n", crc, fw.fh_dcrc);
                 return -EBADF;
             }
-            if (notify)
-                notify(action, 100);
-            return 0;
+
+            /* Save current firmware information */
+            ret = fw_save_header(&fw_curinfo, (struct firmware_pointer *)&fw);
+            if (ret <= 0) 
+                return ret;
+            
+            ota_progress_indicate(&phase, 100);
+            goto _end;
         }
-        if (notify)
-            notify(action, (ofs * 100) / (fw.fh_isize << 1) + 50);
-    } while (true);
 
-    return ret;
+        ota_progress_indicate(&phase, (ofs * 100) / (fw.fh_isize << 1) + 50);
+    }
+
+_end:
+    return 0;
 }
 
-static int fw_partition_copy_comp(const struct disk_partition *dst, 
-    const struct disk_partition *src, void (*notify)(const char *, int),
-    const char *action) {
-    return fw_partition_copy_decomp(dst, src, notify, action);
-}
-
-static int fw_partition_init(void) {
+static int bootloader_init(void) {
+    const char *disk = NULL;
     int err;
 
-    err = disk_device_open(FW_LOAD_DEVICE, &fw_loader);
+    fw_curinfo.offset = FW_INFO_OFFSET;
+    err = disk_device_open(FW_LOAD_DEVICE, &fw_curinfo.dd);
     if (err) {
-        pr_emerg("Not found disk(%s) and error code is %d)\n", FW_LOAD_DEVICE, err);
-        return -ENODEV;
+        disk = FW_LOAD_DEVICE;
+        err = -ENODEV;
+        goto _err;
     }
 
-    err = disk_device_open(FW_RUN_DEVICE, &fw_runner);
+    fw_loader.offset = FW_LOAD_OFFSET;
+    err = disk_device_open(FW_LOAD_DEVICE, &fw_loader.dd);
     if (err) {
-        pr_emerg("Not found disk(%s) and error code is %d)\n", FW_RUN_DEVICE, err);
-        return -ENODEV;
+        disk = FW_LOAD_DEVICE;
+        err = -ENODEV;
+        goto _err;
     }
-#if 0
-    fw_boot = disk_partition_find(FW_BOOT_PARTITION);
-    if (!fw_boot) {
-        pr_emerg("Not found boot partition\n");
-        return -ENODEV;
+    
+    fw_runner.offset = FW_RUN_OFFSET;
+    err = disk_device_open(FW_RUN_DEVICE, &fw_runner.dd);
+    if (err) {
+        disk = FW_RUN_DEVICE;
+        err = -ENODEV;
+        goto _err;
     }
-    fw_swap = disk_partition_find(FW_SWAP_PARTITION);
-    if (!fw_swap) {
-        pr_emerg("Not found swap partition\n");
-        return -ENODEV;
-    }
-    fw_save = disk_partition_find(FW_SAVE_PARTITION);
-    if (!fw_save) {
-        pr_emerg("Not found download partition\n");
-        return -ENODEV;
-    }
-#endif
+    pr_dbg("bootloader loadaddr(0x%x) execaddr(0x%x)\n", 
+        fw_loader.offset, fw_runner.offset);
+    pr_dbg("bootloader initialize completed!\n");
     return 0;
+_err:
+    pr_emerg("Not found disk(%s) and error code is %d)\n", disk, err);
+    return err;
 }
 
 /*
  * Bootloader entry
  */
-int general_boot(void (*boot)(void), 
+int general_boot(
+    void (*boot)(void), 
     void (*notify)(const char *, int)) {
-    bool force_recovery = false;
+    // bool force_recovery = false;
     int trycnt = 3;
     int i = 0, err;
-    void *nvram;
-    size_t nvram_size;
-    int err;
+    struct nvram_desc *nvram;
 
-    if (!boot)
+    pr_info(
+        "\n=====================================\n"
+          "          General BootLoader         \n"
+          "=====================================\n"
+    );
+    if (!boot) {
+        pr_err("Invalid boot function\n");
         return -EINVAL;
+    }
 
-    nvram = sys_get_nvram(&nvram_size);
-    env_load_ram(nvram, nvram_size);
-    err = fw_partition_init();
+    nvram = sys_nvram_get();
+    pr_dbg("Boot nvram address: %p\n", nvram);
+
+    err = env_load_ram(nvram->env_ram, sizeof(nvram->env_ram));
+    if (err)
+        pr_err("load environment variable failed\n");
+    err = bootloader_init();
     assert(err == 0);
 
     /*
@@ -265,7 +359,7 @@ int general_boot(void (*boot)(void),
     if (is_fw_need_update()) {
         pr_info("firmware update beginning...\n");
 _repeat_update:
-        err = fw_partition_copy_decomp(fw_boot, fw_save, notify, "update");
+        err = fw_copy_decomp(&fw_runner, &fw_loader, notify, "update");
         if (!err) {
             env_unset("crash-cnt");
             pr_info("firmware update success!\n");
@@ -275,21 +369,24 @@ _repeat_update:
             goto _repeat_update;
 
         pr_err("firmware update failed(%d)\n", err);
-        force_recovery = true;
-        i = 0;
+        goto _do_boot;
     }
 
+    if (is_fw_need_recovery())
+        env_set("ota-update", "yes", 1);
+#if 0
     /*
      * If the current firmware has some problems and infinite reboot 
      */
     if (force_recovery || is_fw_need_recovery()) {
-        if (!is_fw_recovery_partiton_valid()) {
-            pr_err("the firmware recovery partition is invalid!!\n");
-            goto _err;
+        if (!is_fw_can_recovery()) {
+            pr_warn("firmware backup partition is invalid!!\n");
+            goto _do_boot;
         }
         pr_info("firmware recovery beginning...\n");
+
 _repeat_recovery:
-        err = fw_partition_copy_comp(fw_boot, fw_swap, notify, "recovery");
+        err = fw_copy_decomp(&fw_runner, &fw_recovery, notify, "recovery");
         if (!err) {
             pr_info("firmware recovery success!\n");
             goto _do_boot;
@@ -298,16 +395,19 @@ _repeat_recovery:
             goto _repeat_recovery;
         goto _err;
     }
+#endif
 
 _do_boot:
-    pr_dbg("Booting firmware ...\n");
+    pr_dbg("Starting firmware ...\n");
     if (is_fw_runtime_okay()) 
         env_unset("crash-cnt");
     env_set("crash", "yes", 1);
     env_unset("runtime");
-    env_flush_ram(nvram, nvram_size);
+    env_flush_ram(nvram->env_ram, sizeof(nvram->env_ram));
+
+    /* Boot firmware and never return */
     boot();
+
     /* Should never reached here */
-_err:
     return err;
 }

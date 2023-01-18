@@ -130,8 +130,10 @@ int disk_device_register(struct disk_device *dd) {
         pr_err("no base operations\n");
         return -EINVAL;
     }
-    
+
+#ifndef CONFIG_BOOTLOADER   
     blkdev_init();
+#endif
     os_critical_lock
     dd->next = disk_list;
     disk_list = dd;

@@ -29,7 +29,7 @@
 #define CONFIG_BLKDEV_MAX_BLKSZ 4096
 #endif
 #ifndef CONFIG_BLKDEV_SWAP_PERIOD
-#define CONFIG_BLKDEV_SWAP_PERIOD 3000 //Unit: ms
+#define CONFIG_BLKDEV_SWAP_PERIOD 2000 //Unit: ms
 #endif
 #ifndef CONFIG_BLKDEV_HOLD_TIME
 #define CONFIG_BLKDEV_HOLD_TIME 10000 //Unit: ms
@@ -37,8 +37,9 @@
 
 #define NR_BLKS CONFIG_BLKDEV_NR_BUFS
 
+#ifndef _WIN32
 _Static_assert(CONFIG_BLKDEV_NR_BUFS >= 1 && CONFIG_BLKDEV_NR_BUFS < 20, "");
-
+#endif
 enum bh_state {
     BH_STATE_INVALD = 0,
     BH_STATE_DIRTY,
@@ -235,8 +236,10 @@ ssize_t blkdev_write(struct disk_device *dd, const void *buf, size_t size,
             err = bh_get(dd, blkno, &bh);
         else
             err = bh_read(dd, blkno, &bh);
-        if (err)
+        if (err) {
+            bh_release(bh);
             return err;
+        }
 
         bytes = dd->blk_size - blkofs;
         if (bytes > remain)
@@ -268,8 +271,10 @@ ssize_t blkdev_read(struct disk_device *dd, void *buf, size_t size,
 
     while (remain > 0) {
         err = bh_read(dd, blkno, &bh);
-        if (err)
+        if (err) {
+            bh_release(bh);
             return err;
+        }
         bytes = dd->blk_size - blkofs;
         if (bytes > remain)
             bytes = remain;

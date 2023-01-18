@@ -5,5 +5,5 @@ target_sources(basework
     os_platform.cc
     os_vflash_impl.cc
     os_timer_impl.c
-    os_vdisk_impl.cc
+    # os_vdisk_impl.cc
 )

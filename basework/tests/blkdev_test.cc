@@ -10,6 +10,12 @@
 
 #include "gtest/gtest.h"
 
+#if defined(__ZEPHYR__)
+#define DISK_DEV "spi_flash"
+#else
+#define DISK_DEV "virtual-flash"
+#endif
+
 static const char copyright[] = {
     "// Copyright 2006, Google Inc.\n"
     "// All rights reserved.\n"
@@ -138,7 +144,7 @@ protected:
     }
     struct disk_device *get_disk() const {
         struct disk_device *dd = nullptr;
-        disk_device_open("virtual-flash", &dd);
+        disk_device_open(DISK_DEV, &dd);
         return dd;
     }
 
@@ -150,7 +156,9 @@ struct disk_device cc_blkdev_test::vflash_disk_;
 
 TEST_F(cc_blkdev_test, blkdev_rw) {
     struct disk_device *dd = get_disk();
-
+    ASSERT_NE(dd, nullptr);
+    ASSERT_GT(dd->blk_size, (size_t)0);
+    ASSERT_GT(dd->len, (size_t)0);
     ASSERT_GE(blkdev_write(dd, copyright, sizeof(copyright), 0), 0);
     ASSERT_GE(blkdev_read(dd, str_buffer, sizeof(copyright), 0), 0);
     ASSERT_STREQ(copyright, str_buffer);
@@ -163,25 +171,41 @@ TEST_F(cc_blkdev_test, blkdev_rw) {
 struct log_context {
     int ofs;
 };
-static void log_output(void *ctx, char *buf, size_t size) {
+static bool log_output(void *ctx, char *buf, size_t size) {
     struct log_context *lctx = (struct log_context *)ctx;
     buf[size] = '\0';
-    ASSERT_EQ(strncmp(buf, copyright+lctx->ofs, size), 0);
+    if (strncmp(buf, copyright+lctx->ofs, size)) {
+       pr_err("Error***: %s: %d\n", __FILE__, __LINE__);
+       return false;
+    }
     lctx->ofs += size;
+    return true;
 }
 
 TEST_F(cc_blkdev_test, disklog) {
     struct log_context ctx = {0};
     ASSERT_EQ(disklog_init(), 0);
     ASSERT_EQ(disklog_input(copyright, sizeof(copyright)), 0);
-    ASSERT_EQ(disklog_ouput(log_output, &ctx), 0);
+    ASSERT_EQ(disklog_ouput(log_output, &ctx, 0), 0);
     ctx.ofs = 0;
-    ASSERT_EQ(disklog_ouput(log_output, &ctx), 0);
+    ASSERT_EQ(disklog_ouput(log_output, &ctx, 0), 0);
     blkdev_print();
 
     disklog_reset();
     npr_info(disk, "%s", copyright);
     ctx.ofs = 0;
-    ASSERT_EQ(disklog_ouput(log_output, &ctx), 0);
+    ASSERT_EQ(disklog_ouput(log_output, &ctx, 0), 0);
     blkdev_print();
+
+    int offset = 0;
+    bool first = true;
+    memset(str_buffer, 0, sizeof(str_buffer));
+    
+    do {
+        offset = disklog_read(str_buffer + offset, sizeof(str_buffer) - offset, first);
+        ASSERT_GE(offset, 0);
+        first = false;
+    } while (offset > 0);
+    ASSERT_STREQ(copyright, str_buffer);
+
 }
