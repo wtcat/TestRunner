@@ -70,6 +70,10 @@
 #define __printf_like(f, a)   __attribute__((format (printf, f, a)))
 #endif
 
+#ifndef __must_check
+#define __must_check
+#endif
+
 #else /* */
 #ifndef likely
 #define likely(x)    (x)
